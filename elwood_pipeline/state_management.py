@@ -5,14 +5,17 @@ Manage the unit_status state machine for elwood outliers.
 try:
     from prefect import task, flow
 except ImportError:
+
     def task(fn=None, **kwargs):
         if fn is None:
             return lambda f: f
         return fn
+
     def flow(fn=None, **kwargs):
         if fn is None:
             return lambda f: f
         return fn
+
 
 import ast
 import io
@@ -245,7 +248,7 @@ def write_elwood_outliers_to_pg(df: pd.DataFrame, overrides: set[str]):
 
 
 @flow
-def run():
+def elwood_state_management():
     outliers = get_current_outliers()
     if outliers is None:
         return "skipped - no current outliers"
@@ -255,3 +258,7 @@ def run():
     write_unit_status_to_s3(status_out)
     write_elwood_outliers_to_pg(status_out, overrides)
     return f"advanced state machine: {len(status_out)} tracked units"
+
+
+def run():
+    return elwood_state_management()

@@ -15,14 +15,17 @@ intended behavior — downstream flows read the latest value.
 try:
     from prefect import task, flow
 except ImportError:
+
     def task(fn=None, **kwargs):
         if fn is None:
             return lambda f: f
         return fn
+
     def flow(fn=None, **kwargs):
         if fn is None:
             return lambda f: f
         return fn
+
 
 import io
 import json
@@ -112,9 +115,13 @@ def upload_weights(gdf: gpd.GeoDataFrame, ts: str) -> dict:
 
 
 @flow
-def run():
+def elwood_maintain_data_feed():
     gdf = pull_aq_data()
     ts = upload_aq_feed(gdf)
     upload_weights(gdf, ts)
     logger.info(f"Data feed refreshed for ts={ts}")
     return f"refreshed data feed for ts={ts}"
+
+
+def run():
+    return elwood_maintain_data_feed()

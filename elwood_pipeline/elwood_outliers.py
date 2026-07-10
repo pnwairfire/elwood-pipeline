@@ -6,14 +6,17 @@ metrics from the elwood-spatial package.
 try:
     from prefect import task, flow
 except ImportError:
+
     def task(fn=None, **kwargs):
         if fn is None:
             return lambda f: f
         return fn
+
     def flow(fn=None, **kwargs):
         if fn is None:
             return lambda f: f
         return fn
+
 
 import io
 import json
@@ -192,7 +195,7 @@ def write_current_to_s3(outliers: list[str]):
 
 
 @flow
-def run():
+def elwood_run_all_outliers():
     ts = _hour_ts()
     logger.info(f"Running elwood outliers for ts={ts}")
 
@@ -202,3 +205,7 @@ def run():
     amended = cv_amendment(aq_df, base_outliers)
     write_current_to_s3(amended)
     return f"outliers detected for ts={ts}: {len(amended)}"
+
+
+def run():
+    return elwood_run_all_outliers()

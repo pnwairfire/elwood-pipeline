@@ -1,8 +1,9 @@
 """CLI entrypoint: run a single Elwood pipeline end-to-end and log to stdout.
 
-    python -m elwood_pipeline <stream>
-    elwood-pipeline <stream>
+python -m elwood_pipeline <stream>
+elwood-pipeline <stream>
 """
+
 import argparse
 import logging
 import sys
@@ -26,7 +27,8 @@ def main(argv=None):
         "stream", choices=sorted(REGISTRY), help="which pipeline to run"
     )
     parser.add_argument(
-        "--log-level", default="INFO",
+        "--log-level",
+        default="INFO",
         help="stdlib logging level (default: INFO)",
     )
     args = parser.parse_args(argv)
