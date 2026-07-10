@@ -1,19 +1,3 @@
-"""
-Manage the unit_status state machine for elwood outliers.
-"""
-
-try:
-    from prefect import task, flow
-except ImportError:
-    def task(fn=None, **kwargs):
-        if fn is None:
-            return lambda f: f
-        return fn
-    def flow(fn=None, **kwargs):
-        if fn is None:
-            return lambda f: f
-        return fn
-
 import ast
 import io
 import json
@@ -45,7 +29,6 @@ def _s3_get_bytes(s3, bucket: str, key: str) -> bytes:
     return s3.get_object(Bucket=bucket, Key=key)["Body"].read()
 
 
-@task
 def get_current_outliers() -> list[str] | None:
     s3 = init_epa_s3()
     try:
@@ -58,7 +41,6 @@ def get_current_outliers() -> list[str] | None:
     return outliers
 
 
-@task
 def get_unit_status() -> pd.DataFrame:
     s3 = init_epa_s3()
     try:
@@ -86,7 +68,6 @@ def get_unit_status() -> pd.DataFrame:
         )
 
 
-@task
 def get_overrides() -> set[str]:
     s3 = init_epa_s3()
     try:
@@ -186,7 +167,6 @@ def _advance_state(status_df: pd.DataFrame, outlier_ids: list[str]) -> pd.DataFr
     return status_df
 
 
-@task
 def advance_state(status_df: pd.DataFrame, outliers: list[str]) -> pd.DataFrame:
     updated = _advance_state(status_df, outliers)
     for status, count in updated["unit_status"].value_counts().items():
@@ -194,7 +174,6 @@ def advance_state(status_df: pd.DataFrame, outliers: list[str]) -> pd.DataFrame:
     return updated
 
 
-@task
 def write_unit_status_to_s3(df: pd.DataFrame):
     s3 = init_epa_s3()
     buf = io.StringIO()
@@ -208,7 +187,6 @@ def write_unit_status_to_s3(df: pd.DataFrame):
     logger.info(f"WROTE unit_status.csv ({len(df)} rows)")
 
 
-@task
 def write_elwood_outliers_to_pg(df: pd.DataFrame, overrides: set[str]):
     filtered = df[~df["unit_id"].isin(overrides)]
     records = filtered[
@@ -244,8 +222,7 @@ def write_elwood_outliers_to_pg(df: pd.DataFrame, overrides: set[str]):
     )
 
 
-@flow
-def run():
+def elwood_state_management():
     outliers = get_current_outliers()
     if outliers is None:
         return "skipped - no current outliers"
@@ -255,3 +232,7 @@ def run():
     write_unit_status_to_s3(status_out)
     write_elwood_outliers_to_pg(status_out, overrides)
     return f"advanced state machine: {len(status_out)} tracked units"
+
+
+def run():
+    return elwood_state_management()
