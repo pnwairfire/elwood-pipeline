@@ -3,21 +3,6 @@ Detect low-cost sensor outliers in the FASM AQ feed using information-theoretic
 metrics from the elwood-spatial package.
 """
 
-try:
-    from prefect import task, flow
-except ImportError:
-
-    def task(fn=None, **kwargs):
-        if fn is None:
-            return lambda f: f
-        return fn
-
-    def flow(fn=None, **kwargs):
-        if fn is None:
-            return lambda f: f
-        return fn
-
-
 import io
 import json
 import logging
@@ -51,7 +36,6 @@ def _s3_get_bytes(s3, bucket: str, key: str) -> bytes:
     return s3.get_object(Bucket=bucket, Key=key)["Body"].read()
 
 
-@task
 def collect_aq_df(ts: int):
     s3 = init_epa_s3()
     bucket = fasm_layers_bucket()
@@ -93,7 +77,6 @@ def collect_aq_df(ts: int):
     return aq_df, units_to_drop
 
 
-@task
 def collect_network(ts: int, aq_df: pd.DataFrame) -> dict:
     s3 = init_epa_s3()
     data = _s3_get_bytes(s3, fasm_layers_bucket(), f"{NETWORK_KEY_PREFIX}/{ts}.json")
@@ -105,7 +88,6 @@ def collect_network(ts: int, aq_df: pd.DataFrame) -> dict:
     return filtered
 
 
-@task
 def find_outliers(aq_df: pd.DataFrame, network: dict) -> list[str]:
     values = {str(r.unit_id): r.aqi for r in aq_df.itertuples(index=False)}
 
@@ -132,7 +114,6 @@ def _measure_cv(series: pd.Series) -> float:
     return (series.std() / mean) * 100
 
 
-@task
 def cv_amendment(aq_df: pd.DataFrame, outliers: list[str]) -> list[str]:
     high = aq_df[
         (aq_df["aqi"] >= HIGH_AQI_THRESHOLD)
@@ -182,7 +163,6 @@ def cv_amendment(aq_df: pd.DataFrame, outliers: list[str]) -> list[str]:
     return result
 
 
-@task
 def write_current_to_s3(outliers: list[str]):
     s3 = init_epa_s3()
     s3.put_object(
@@ -194,7 +174,6 @@ def write_current_to_s3(outliers: list[str]):
     logger.info(f"WROTE current.json with {len(outliers)} outliers")
 
 
-@flow
 def elwood_run_all_outliers():
     ts = _hour_ts()
     logger.info(f"Running elwood outliers for ts={ts}")

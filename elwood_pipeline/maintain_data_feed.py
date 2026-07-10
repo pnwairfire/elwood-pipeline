@@ -12,21 +12,6 @@ flow repeatedly within an hour overwrites the same <ts> keys, which is the
 intended behavior — downstream flows read the latest value.
 """
 
-try:
-    from prefect import task, flow
-except ImportError:
-
-    def task(fn=None, **kwargs):
-        if fn is None:
-            return lambda f: f
-        return fn
-
-    def flow(fn=None, **kwargs):
-        if fn is None:
-            return lambda f: f
-        return fn
-
-
 import io
 import json
 import logging
@@ -60,7 +45,6 @@ def _assign_cat(aqi):
     return AQI_MODIFIED_BINS.labels[idx]
 
 
-@task
 def pull_aq_data() -> gpd.GeoDataFrame:
     query_sql = read_sql("pull_aq_units.sql")
     engine = get_ts_engine()
@@ -72,7 +56,6 @@ def pull_aq_data() -> gpd.GeoDataFrame:
     return gdf
 
 
-@task
 def upload_aq_feed(gdf: gpd.GeoDataFrame) -> str:
     ts = _hour_ts()
     key = f"elwood/hourly_aq/{ts}.parquet"
@@ -91,7 +74,6 @@ def upload_aq_feed(gdf: gpd.GeoDataFrame) -> str:
     return ts
 
 
-@task
 def upload_weights(gdf: gpd.GeoDataFrame, ts: str) -> dict:
     network = build_network(
         gdf=gdf,
@@ -114,7 +96,6 @@ def upload_weights(gdf: gpd.GeoDataFrame, ts: str) -> dict:
     return network
 
 
-@flow
 def elwood_maintain_data_feed():
     gdf = pull_aq_data()
     ts = upload_aq_feed(gdf)
