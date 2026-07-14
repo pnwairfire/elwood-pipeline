@@ -1,5 +1,5 @@
-"""S3 client helpers for the Elwood pipeline.
-"""
+"""S3 client helpers for the Elwood pipeline."""
+
 import os
 
 import boto3
@@ -7,11 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-EPA_ACCESS_KEY = (
-    os.getenv("EPA_AWS_ACCESS_KEY") or os.getenv("AWS_ACCESS_KEY")
-)
-EPA_SECRET_ACCESS_KEY = (
-    os.getenv("EPA_AWS_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+EPA_ACCESS_KEY = os.getenv("EPA_AWS_ACCESS_KEY") or os.getenv("AWS_ACCESS_KEY")
+EPA_SECRET_ACCESS_KEY = os.getenv("EPA_AWS_SECRET_ACCESS_KEY") or os.getenv(
+    "AWS_SECRET_ACCESS_KEY"
 )
 EPA_BUCKET = os.getenv("EPA_BUCKET")
 
