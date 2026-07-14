@@ -1,5 +1,5 @@
-"""Externalized configuration for Elwood data targets.
-"""
+"""Externalized configuration for Elwood data targets."""
+
 import os
 import re
 

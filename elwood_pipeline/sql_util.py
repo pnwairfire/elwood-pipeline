@@ -1,5 +1,5 @@
-"""Load SQL files bundled in ``elwood_pipeline/sql/``.
-"""
+"""Load SQL files bundled in ``elwood_pipeline/sql/``."""
+
 from pathlib import Path
 
 SQL_DIR = Path(__file__).parent / "sql"
