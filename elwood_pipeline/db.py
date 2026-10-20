@@ -45,7 +45,7 @@ def get_uri(env_vars, sslmode="require"):
     cfg = _get_config(env_vars)
     pw = quote_plus(cfg["password"])
     uri = (
-        f"postgresql://{cfg['user']}:{pw}@{cfg['host']}:{cfg['port']}/{cfg['database']}"
+        f"postgresql+psycopg2://{cfg['user']}:{pw}@{cfg['host']}:{cfg['port']}/{cfg['database']}"
     )
     return f"{uri}?sslmode={sslmode}" if sslmode else uri
 
