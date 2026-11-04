@@ -1,0 +1,23 @@
+name: Continuous Integration & Quality Gates
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-quality-gates:
+    name: Python Quality Gates
+    uses: pnwairfire/airfire-cicd/.github/workflows/reusable-python.yml@v1
+    with:
+      python-version: "3.12"
+      run-ruff: true
+      run-tests: true
+      pytest-args: "-v"
