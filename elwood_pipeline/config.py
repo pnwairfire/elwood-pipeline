@@ -33,3 +33,7 @@ DEST_SCHEMA = _ident("DEST_SCHEMA", "pwfsl_map")
 
 # --- Destination tables ---
 ELWOOD_OUTLIERS_TABLE = _ident("ELWOOD_OUTLIERS_TABLE", "elwood_outliers")
+
+# --- S3 routing & ACL ---
+ELWOOD_S3_PREFIX = _env("ELWOOD_S3_PREFIX", "elwood").strip("/")
+DISABLE_S3_ACL = _env("DISABLE_S3_ACL", "false").lower() in ("1", "true", "yes")

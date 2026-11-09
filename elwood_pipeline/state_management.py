@@ -8,12 +8,15 @@ from botocore.exceptions import ClientError
 from psycopg2.extras import execute_values
 
 from elwood_pipeline.db import get_ts_db_conn
-from elwood_pipeline.s3 import fasm_layers_bucket, init_epa_s3
+from elwood_pipeline.s3 import (
+    elwood_key,
+    fasm_layers_bucket,
+    init_epa_s3,
+    put_s3_object,
+)
 
 logger = logging.getLogger(__name__)
 
-CURRENT_KEY = "elwood/outliers/current.json"
-UNIT_STATUS_KEY = "elwood/outliers/unit_status.csv"
 OVERRIDES_KEY = "elwood/outliers/exclude_from_outliers.csv"
 
 HISTORY_WINDOW_HOURS = 8
@@ -31,8 +34,9 @@ def _s3_get_bytes(s3, bucket: str, key: str) -> bytes:
 
 def get_current_outliers() -> list[str] | None:
     s3 = init_epa_s3()
+    key = elwood_key("outliers/current.json")
     try:
-        raw = json.loads(_s3_get_bytes(s3, fasm_layers_bucket(), CURRENT_KEY))
+        raw = json.loads(_s3_get_bytes(s3, fasm_layers_bucket(), key))
     except ClientError as exc:
         logger.warning(f"current.json not available yet ({exc}); skipping run")
         return None
@@ -43,8 +47,9 @@ def get_current_outliers() -> list[str] | None:
 
 def get_unit_status() -> pd.DataFrame:
     s3 = init_epa_s3()
+    key = elwood_key("outliers/unit_status.csv")
     try:
-        data = _s3_get_bytes(s3, fasm_layers_bucket(), UNIT_STATUS_KEY)
+        data = _s3_get_bytes(s3, fasm_layers_bucket(), key)
         df = pd.read_csv(io.BytesIO(data), parse_dates=["created_at", "last_updated"])
         df["unit_id"] = df["unit_id"].astype(str)
         df["hours_since_addition"] = df["hours_since_addition"].astype(float)
@@ -178,11 +183,12 @@ def write_unit_status_to_s3(df: pd.DataFrame):
     s3 = init_epa_s3()
     buf = io.StringIO()
     df.to_csv(buf, index=False)
-    s3.put_object(
-        Bucket=fasm_layers_bucket(),
-        Key=UNIT_STATUS_KEY,
-        Body=buf.getvalue(),
-        ContentType="text/csv",
+    put_s3_object(
+        s3,
+        fasm_layers_bucket(),
+        elwood_key("outliers/unit_status.csv"),
+        buf.getvalue(),
+        "text/csv",
     )
     logger.info(f"WROTE unit_status.csv ({len(df)} rows)")
 
