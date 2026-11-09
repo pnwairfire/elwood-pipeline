@@ -14,12 +14,14 @@ from elwood_spatial.air_quality import AQI_MODIFIED_BINS
 from elwood_spatial.detect import PARAMS_OPERATIONAL, detect_outliers
 from elwood_spatial.network import filter_network
 
-from elwood_pipeline.s3 import fasm_layers_bucket, init_epa_s3
+from elwood_pipeline.s3 import (
+    elwood_key,
+    fasm_layers_bucket,
+    init_epa_s3,
+    put_s3_object,
+)
 
 logger = logging.getLogger(__name__)
-
-AQ_KEY_PREFIX = "elwood/hourly_aq"
-NETWORK_KEY_PREFIX = "elwood/hourly_weights"
 
 SENSOR_UNIT_TYPES = {"PurpleAir", "SensOR", "SensWA", "Clarity"}
 MIN_HOURS_PRESENT = 3
@@ -41,7 +43,7 @@ def collect_aq_df(ts: int):
     bucket = fasm_layers_bucket()
     frames = []
     for offset in (0, 3600, 7200):
-        key = f"{AQ_KEY_PREFIX}/{ts - offset}.parquet"
+        key = elwood_key(f"hourly_aq/{ts - offset}.parquet")
         try:
             data = _s3_get_bytes(s3, bucket, key)
             frame = gpd.read_parquet(io.BytesIO(data))
@@ -79,7 +81,9 @@ def collect_aq_df(ts: int):
 
 def collect_network(ts: int, aq_df: pd.DataFrame) -> dict:
     s3 = init_epa_s3()
-    data = _s3_get_bytes(s3, fasm_layers_bucket(), f"{NETWORK_KEY_PREFIX}/{ts}.json")
+    data = _s3_get_bytes(
+        s3, fasm_layers_bucket(), elwood_key(f"hourly_weights/{ts}.json")
+    )
     network_raw = json.loads(data)
 
     active_ids = set(aq_df["unit_id"].astype(str).tolist())
@@ -165,13 +169,15 @@ def cv_amendment(aq_df: pd.DataFrame, outliers: list[str]) -> list[str]:
 
 def write_current_to_s3(outliers: list[str]):
     s3 = init_epa_s3()
-    s3.put_object(
-        Bucket=fasm_layers_bucket(),
-        Key="elwood/outliers/current.json",
-        Body=json.dumps(outliers).encode("utf-8"),
-        ContentType="application/json",
+    key = elwood_key("outliers/current.json")
+    put_s3_object(
+        s3,
+        bucket=fasm_layers_bucket(),
+        key=key,
+        body=json.dumps(outliers).encode("utf-8"),
+        content_type="application/json",
     )
-    logger.info(f"WROTE current.json with {len(outliers)} outliers")
+    logger.info(f"WROTE {key} with {len(outliers)} outliers")
 
 
 def elwood_run_all_outliers():

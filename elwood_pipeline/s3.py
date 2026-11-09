@@ -5,13 +5,17 @@ import os
 import boto3
 from dotenv import load_dotenv
 
+from elwood_pipeline import config
+
 load_dotenv()
 
 EPA_ACCESS_KEY = os.getenv("EPA_AWS_ACCESS_KEY") or os.getenv("AWS_ACCESS_KEY")
 EPA_SECRET_ACCESS_KEY = os.getenv("EPA_AWS_SECRET_ACCESS_KEY") or os.getenv(
     "AWS_SECRET_ACCESS_KEY"
 )
-EPA_BUCKET = os.getenv("EPA_BUCKET")
+EPA_BUCKET = (
+    os.getenv("EPA_BUCKET") or os.getenv("AFE_BUCKET") or "airfire-data-exports"
+)
 
 AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL") or None
 AWS_REGION = os.getenv("AWS_REGION") or None
@@ -37,3 +41,22 @@ def init_epa_s3():
 
 def fasm_layers_bucket():
     return EPA_BUCKET
+
+
+def elwood_key(subpath: str) -> str:
+    prefix = config.ELWOOD_S3_PREFIX.strip("/")
+    return f"{prefix}/{subpath.lstrip('/')}"
+
+
+def put_s3_object(
+    s3_client, bucket: str, key: str, body: bytes | str, content_type: str
+) -> None:
+    kwargs = {
+        "Bucket": bucket,
+        "Key": key,
+        "Body": body,
+        "ContentType": content_type,
+    }
+    if not config.DISABLE_S3_ACL:
+        kwargs["ACL"] = "public-read"
+    s3_client.put_object(**kwargs)

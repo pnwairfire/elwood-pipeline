@@ -2,10 +2,11 @@
 Maintain the hourly AQ data feed that powers elwood outlier detection.
 
 Pulls active AQ units from the tileserver DB, computes a distance-banded
-spatial neighbor network, and publishes two artifacts to S3 (EPA bucket):
+spatial neighbor network, and publishes artifacts to S3 (EPA bucket):
 
-  s3://<epa-bucket>/elwood/hourly_aq/<ts>.parquet      (GeoParquet, EPSG:4326)
-  s3://<epa-bucket>/elwood/hourly_weights/<ts>.json    (network dict)
+  s3://<epa-bucket>/<prefix>/hourly_aq/<ts>.parquet      (GeoParquet, EPSG:4326)
+  s3://<epa-bucket>/<prefix>/hourly_aq/<ts>.geojson      (GeoJSON, EPSG:4326)
+  s3://<epa-bucket>/<prefix>/hourly_weights/<ts>.json    (network dict)
 
 <ts> is the current hour floored to the top of the UTC hour. Running this
 flow repeatedly within an hour overwrites the same <ts> keys, which is the
@@ -15,7 +16,7 @@ intended behavior — downstream flows read the latest value.
 import io
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import geopandas as gpd
 from elwood_spatial.air_quality import AQI_MODIFIED_BINS
@@ -23,7 +24,12 @@ from elwood_spatial.network import build_network
 from sqlalchemy import text
 
 from elwood_pipeline.db import get_ts_engine
-from elwood_pipeline.s3 import fasm_layers_bucket, init_epa_s3
+from elwood_pipeline.s3 import (
+    elwood_key,
+    fasm_layers_bucket,
+    init_epa_s3,
+    put_s3_object,
+)
 from elwood_pipeline.sql_util import read_sql
 
 logger = logging.getLogger(__name__)
@@ -58,19 +64,33 @@ def pull_aq_data() -> gpd.GeoDataFrame:
 
 def upload_aq_feed(gdf: gpd.GeoDataFrame) -> str:
     ts = _hour_ts()
-    key = f"elwood/hourly_aq/{ts}.parquet"
+    parquet_key = elwood_key(f"hourly_aq/{ts}.parquet")
+    geojson_key = elwood_key(f"hourly_aq/{ts}.geojson")
 
     buf = io.BytesIO()
     gdf.to_parquet(buf, compression="snappy", index=False)
+    geojson_bytes = gdf.to_json().encode("utf-8")
 
     s3 = init_epa_s3()
-    s3.put_object(
-        Bucket=fasm_layers_bucket(),
-        Key=key,
-        Body=buf.getvalue(),
-        ContentType="application/vnd.apache.parquet",
+    bucket = fasm_layers_bucket()
+    put_s3_object(
+        s3,
+        bucket=bucket,
+        key=parquet_key,
+        body=buf.getvalue(),
+        content_type="application/vnd.apache.parquet",
     )
-    logger.info(f"UPLOADED {key} ({len(gdf)} features, {buf.tell():,} bytes)")
+    put_s3_object(
+        s3,
+        bucket=bucket,
+        key=geojson_key,
+        body=geojson_bytes,
+        content_type="application/geo+json",
+    )
+    logger.info(
+        f"UPLOADED {parquet_key} ({buf.tell():,} bytes) and "
+        f"{geojson_key} ({len(geojson_bytes):,} bytes) for {len(gdf)} features"
+    )
     return ts
 
 
@@ -84,22 +104,64 @@ def upload_weights(gdf: gpd.GeoDataFrame, ts: str) -> dict:
         projected_crs=PROJECTED_CRS,
     )
 
-    key = f"elwood/hourly_weights/{ts}.json"
+    key = elwood_key(f"hourly_weights/{ts}.json")
     s3 = init_epa_s3()
-    s3.put_object(
-        Bucket=fasm_layers_bucket(),
-        Key=key,
-        Body=json.dumps(network).encode("utf-8"),
-        ContentType="application/json",
+    put_s3_object(
+        s3,
+        bucket=fasm_layers_bucket(),
+        key=key,
+        body=json.dumps(network).encode("utf-8"),
+        content_type="application/json",
     )
     logger.info(f"UPLOADED {key} ({len(network)} units)")
     return network
+
+
+def prune_old_hourly_files(
+    retention_hours: int = 48, now: datetime | None = None
+) -> int:
+    current_time = now or datetime.now(UTC)
+    cutoff = current_time - timedelta(hours=retention_hours)
+    s3 = init_epa_s3()
+    bucket = fasm_layers_bucket()
+    deleted_total = 0
+
+    for subdir in ("hourly_aq/", "hourly_weights/"):
+        prefix = elwood_key(subdir)
+        continuation_token = None
+        to_delete = []
+        while True:
+            list_kwargs = {"Bucket": bucket, "Prefix": prefix}
+            if continuation_token:
+                list_kwargs["ContinuationToken"] = continuation_token
+            resp = s3.list_objects_v2(**list_kwargs)
+            for obj in resp.get("Contents", []):
+                last_modified = obj.get("LastModified")
+                if last_modified is not None and last_modified < cutoff:
+                    to_delete.append({"Key": obj["Key"]})
+            if resp.get("IsTruncated") and resp.get("NextContinuationToken"):
+                continuation_token = resp["NextContinuationToken"]
+            else:
+                break
+
+        for i in range(0, len(to_delete), 1000):
+            batch = to_delete[i : i + 1000]
+            s3.delete_objects(Bucket=bucket, Delete={"Objects": batch})
+            deleted_total += len(batch)
+
+    if deleted_total:
+        logger.info(
+            f"PRUNED {deleted_total} hourly Elwood objects "
+            f"older than {retention_hours}h"
+        )
+    return deleted_total
 
 
 def elwood_maintain_data_feed():
     gdf = pull_aq_data()
     ts = upload_aq_feed(gdf)
     upload_weights(gdf, ts)
+    prune_old_hourly_files()
     logger.info(f"Data feed refreshed for ts={ts}")
     return f"refreshed data feed for ts={ts}"
 
