@@ -1,11 +1,13 @@
 # ruff: noqa: S101
-# ruff: noqa: S101
 import io
+import json
+import math
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import geopandas as gpd
 import pandas as pd
+import pytest
 from shapely.geometry import Point
 
 from elwood_pipeline import (
@@ -15,6 +17,7 @@ from elwood_pipeline import (
     s3,
     state_management,
 )
+from elwood_pipeline.network import build_spherical_network
 
 
 def test_elwood_key_respects_elwood_s3_prefix(monkeypatch):
@@ -155,3 +158,102 @@ def test_outliers_and_state_management_use_elwood_key_and_public_acl(monkeypatch
         Bucket="airfire-data-exports",
         Key="elwood/outliers/exclude_from_outliers.csv",
     )
+
+
+@pytest.mark.parametrize(
+    ("region", "lon", "lat"),
+    [
+        ("Honolulu HI", -157.858, 21.307),
+        ("San Juan PR", -66.105, 18.465),
+        ("St Johns NL", -52.713, 47.561),
+        ("Mexico City MX", -99.133, 19.432),
+        ("Fairbanks AK", -147.716, 64.837),
+        ("Minneapolis MN", -93.265, 44.978),
+    ],
+)
+def test_build_spherical_network_enforces_true_8km_globally(region, lon, lat):
+    dlat_5km = math.degrees(5000.0 / 6_371_000.0)
+    dlat_9km = math.degrees(9000.0 / 6_371_000.0)
+    dlon_6km = math.degrees(6000.0 / (6_371_000.0 * math.cos(math.radians(lat))))
+
+    gdf = gpd.GeoDataFrame(
+        {"unit_id": ["center", "north_5km", "east_6km", "north_9km"]},
+        geometry=[
+            Point(lon, lat),
+            Point(lon, lat + dlat_5km),
+            Point(lon + dlon_6km, lat),
+            Point(lon, lat + dlat_9km),
+        ],
+        crs="EPSG:4326",
+    )
+    net = build_spherical_network(
+        gdf, threshold_m=8000.0, id_column="unit_id", max_neighbors=15, min_neighbors=0
+    )
+    assert net["center"]["neighbors"] == ["north_5km", "east_6km"], (
+        f"Failed in {region}"
+    )
+    assert net["north_9km"]["neighbors"] == ["north_5km"]
+
+
+def test_build_spherical_network_handles_empty_and_isolated_units():
+    empty = gpd.GeoDataFrame({"unit_id": []}, geometry=[], crs="EPSG:4326")
+    assert build_spherical_network(empty, threshold_m=8000.0, id_column="unit_id") == {}
+
+    single = gpd.GeoDataFrame(
+        {"unit_id": ["only"]},
+        geometry=[Point(-155.084, 19.724)],
+        crs="EPSG:4326",
+    )
+    assert build_spherical_network(
+        single, threshold_m=8000.0, id_column="unit_id", min_neighbors=0
+    ) == {"only": {"neighbors": [], "weights": []}}
+    assert (
+        build_spherical_network(
+            single, threshold_m=8000.0, id_column="unit_id", min_neighbors=1
+        )
+        == {}
+    )
+
+    isolated = gpd.GeoDataFrame(
+        {"unit_id": ["hilo", "san_juan"]},
+        geometry=[Point(-155.084, 19.724), Point(-66.105, 18.465)],
+        crs="EPSG:4326",
+    )
+    net = build_spherical_network(
+        isolated, threshold_m=8000.0, id_column="unit_id", min_neighbors=0
+    )
+    assert net == {
+        "hilo": {"neighbors": [], "weights": []},
+        "san_juan": {"neighbors": [], "weights": []},
+    }
+
+
+def test_build_spherical_network_colocated_and_upload_weights_produce_valid_json(
+    monkeypatch,
+):
+    mock_s3 = MagicMock()
+    monkeypatch.setattr(maintain_data_feed, "init_epa_s3", lambda: mock_s3)
+    monkeypatch.setattr(
+        maintain_data_feed, "fasm_layers_bucket", lambda: "airfire-data-exports"
+    )
+    monkeypatch.setattr(config, "ELWOOD_S3_PREFIX", "elwood")
+    monkeypatch.setattr(config, "DISABLE_S3_ACL", False)
+
+    colocated = gpd.GeoDataFrame(
+        {"unit_id": ["a", "b", "c"]},
+        geometry=[
+            Point(-157.858, 21.307),
+            Point(-157.858, 21.307),
+            Point(-157.858, 21.325),  # ~2 km north in Honolulu
+        ],
+        crs="EPSG:4326",
+    )
+    net = maintain_data_feed.upload_weights(colocated, "1762452000")
+    assert net["a"]["neighbors"] == ["b", "c"]
+    assert net["a"]["weights"][0] > net["a"]["weights"][1] > 0.0
+    assert all(math.isfinite(w) for w in net["a"]["weights"])
+
+    call_kwargs = mock_s3.put_object.call_args.kwargs
+    assert call_kwargs["Key"] == "elwood/hourly_weights/1762452000.json"
+    parsed = json.loads(call_kwargs["Body"].decode("utf-8"))
+    assert parsed == net
