@@ -20,10 +20,10 @@ from datetime import UTC, datetime, timedelta
 
 import geopandas as gpd
 from elwood_spatial.air_quality import AQI_MODIFIED_BINS
-from elwood_spatial.network import build_network
 from sqlalchemy import text
 
 from elwood_pipeline.db import get_ts_engine
+from elwood_pipeline.network import build_spherical_network
 from elwood_pipeline.s3 import (
     elwood_key,
     fasm_layers_bucket,
@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 NETWORK_THRESHOLD_M = 8000
 MAX_NEIGHBORS = 15
-PROJECTED_CRS = 26915
 
 
 def _hour_ts() -> str:
@@ -95,13 +94,12 @@ def upload_aq_feed(gdf: gpd.GeoDataFrame) -> str:
 
 
 def upload_weights(gdf: gpd.GeoDataFrame, ts: str) -> dict:
-    network = build_network(
+    network = build_spherical_network(
         gdf=gdf,
-        threshold=NETWORK_THRESHOLD_M,
+        threshold_m=NETWORK_THRESHOLD_M,
         id_column="unit_id",
         max_neighbors=MAX_NEIGHBORS,
         min_neighbors=0,
-        projected_crs=PROJECTED_CRS,
     )
 
     key = elwood_key(f"hourly_weights/{ts}.json")
@@ -110,7 +108,7 @@ def upload_weights(gdf: gpd.GeoDataFrame, ts: str) -> dict:
         s3,
         bucket=fasm_layers_bucket(),
         key=key,
-        body=json.dumps(network).encode("utf-8"),
+        body=json.dumps(network, allow_nan=False).encode("utf-8"),
         content_type="application/json",
     )
     logger.info(f"UPLOADED {key} ({len(network)} units)")
