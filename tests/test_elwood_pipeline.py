@@ -257,3 +257,47 @@ def test_build_spherical_network_colocated_and_upload_weights_produce_valid_json
     assert call_kwargs["Key"] == "elwood/hourly_weights/1762452000.json"
     parsed = json.loads(call_kwargs["Body"].decode("utf-8"))
     assert parsed == net
+
+
+def test_cv_amendment_uses_purpleair_weekly_s3_prefix_with_prod_fallback(monkeypatch):
+    from elwood_pipeline import elwood_outliers
+
+    monkeypatch.setattr(
+        config,
+        "PURPLEAIR_WEEKLY_S3_PREFIX",
+        "shadow-dev/maps/purple_air/v4/timeseries/weekly",
+    )
+
+    urls_requested: list[str] = []
+    hourly_ts = pd.date_range("2026-11-12 00:00:00", periods=16, freq="h").astype(str)
+    steady_df = pd.DataFrame({"local_ts": hourly_ts, "epa_nowcast": [250.0] * 16})
+
+    def fake_read_csv(url):
+        urls_requested.append(url)
+        if "shadow-dev/" in url and url.endswith("/99901.csv"):
+            return steady_df.copy()
+        if "shadow-dev/" in url and url.endswith("/10002.csv"):
+            raise FileNotFoundError("not yet in shadow-dev")
+        if "/maps/purple_air/v4/timeseries/weekly/10002.csv" in url:
+            return steady_df.copy()
+        raise FileNotFoundError(url)
+
+    monkeypatch.setattr(elwood_outliers.pd, "read_csv", fake_read_csv)
+
+    aq_df = pd.DataFrame(
+        {
+            "unit_id": ["99901", "10002"],
+            "unit_type": ["PurpleAir", "PurpleAir"],
+            "aqi": [220, 215],
+        }
+    )
+    outliers = elwood_outliers.cv_amendment(aq_df, outliers=[])
+    assert set(outliers) == {"99901", "10002"}
+    assert (
+        "https://airfire-data-exports.s3.us-west-2.amazonaws.com/"
+        "shadow-dev/maps/purple_air/v4/timeseries/weekly/99901.csv"
+    ) in urls_requested
+    assert (
+        "https://airfire-data-exports.s3.us-west-2.amazonaws.com/"
+        "maps/purple_air/v4/timeseries/weekly/10002.csv"
+    ) in urls_requested

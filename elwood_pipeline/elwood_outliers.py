@@ -14,6 +14,7 @@ from elwood_spatial.air_quality import AQI_MODIFIED_BINS
 from elwood_spatial.detect import PARAMS_OPERATIONAL, detect_outliers
 from elwood_spatial.network import filter_network
 
+from elwood_pipeline import config
 from elwood_pipeline.s3 import (
     elwood_key,
     fasm_layers_bucket,
@@ -130,8 +131,16 @@ def cv_amendment(aq_df: pd.DataFrame, outliers: list[str]) -> list[str]:
         unit_type = unit["unit_type"]
         try:
             if unit_type == "PurpleAir":
-                url = f"https://airfire-data-exports.s3.us-west-2.amazonaws.com/maps/purple_air/v4/timeseries/weekly/{unit_id}.csv"
-                data = pd.read_csv(url).dropna(subset=["epa_nowcast"])
+                pa_prefix = config.PURPLEAIR_WEEKLY_S3_PREFIX.strip("/")
+                url = f"https://airfire-data-exports.s3.us-west-2.amazonaws.com/{pa_prefix}/{unit_id}.csv"
+                try:
+                    raw_df = pd.read_csv(url)
+                except Exception:
+                    if pa_prefix == config.DEFAULT_PURPLEAIR_WEEKLY_S3_PREFIX:
+                        raise
+                    fallback_url = f"https://airfire-data-exports.s3.us-west-2.amazonaws.com/{config.DEFAULT_PURPLEAIR_WEEKLY_S3_PREFIX}/{unit_id}.csv"
+                    raw_df = pd.read_csv(fallback_url)
+                data = raw_df.dropna(subset=["epa_nowcast"])
                 data["local_ts"] = pd.to_datetime(data["local_ts"])
                 cutoff = data["local_ts"].iloc[-1] - pd.Timedelta(hours=24)
                 recent = data[data["local_ts"] >= cutoff]
