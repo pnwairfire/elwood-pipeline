@@ -36,4 +36,8 @@ ELWOOD_OUTLIERS_TABLE = _ident("ELWOOD_OUTLIERS_TABLE", "elwood_outliers")
 
 # --- S3 routing & ACL ---
 ELWOOD_S3_PREFIX = _env("ELWOOD_S3_PREFIX", "elwood").strip("/")
+DEFAULT_PURPLEAIR_WEEKLY_S3_PREFIX = "maps/purple_air/v4/timeseries/weekly"
+PURPLEAIR_WEEKLY_S3_PREFIX = _env(
+    "PURPLEAIR_WEEKLY_S3_PREFIX", DEFAULT_PURPLEAIR_WEEKLY_S3_PREFIX
+).strip("/")
 DISABLE_S3_ACL = _env("DISABLE_S3_ACL", "false").lower() in ("1", "true", "yes")
